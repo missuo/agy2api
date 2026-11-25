@@ -85,15 +85,64 @@ public enum Accounts {
         let home = home(config, name: name)
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let env = ProcessInfo.processInfo.environment
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: resolveExecutable(config.agyPath, path: env["PATH"]))
-        process.arguments = ["acp", "--login"]
-        process.environment = ["HOME": home.path, "PATH": env["PATH"] ?? "/usr/bin:/bin", "LANG": env["LANG"] ?? "C.UTF-8",
-                               "TERM": env["TERM"] ?? "xterm"]
-        process.currentDirectoryURL = home
-        try process.run()
-        process.waitUntilExit()
-        return process.terminationStatus
+        return try spawnInForeground(
+            resolveExecutable(config.agyPath, path: env["PATH"]),
+            arguments: ["acp", "--login"],
+            environment: ["HOME": home.path, "PATH": env["PATH"] ?? "/usr/bin:/bin", "LANG": env["LANG"] ?? "C.UTF-8",
+                          "TERM": env["TERM"] ?? "xterm"],
+            directory: home.path)
+    }
+
+    /// Run a program attached to this terminal and wait for it.
+    ///
+    /// Not `Process`: on Linux it puts the child in a process group of its
+    /// own, which is then in the terminal's background, so agy's read of the
+    /// sign-in code fails with EIO. `posix_spawn` without
+    /// `POSIX_SPAWN_SETPGROUP` keeps the child in our (foreground) group.
+    static func spawnInForeground(_ path: String, arguments: [String], environment: [String: String],
+                                  directory: String) throws -> Int32 {
+        #if canImport(Darwin)
+        var actions: posix_spawn_file_actions_t? = nil
+        #else
+        var actions = posix_spawn_file_actions_t()
+        #endif
+        posix_spawn_file_actions_init(&actions)
+        defer { posix_spawn_file_actions_destroy(&actions) }
+        posix_spawn_file_actions_addchdir_np(&actions, directory)
+
+        // Like `Process`: default signal handlers and an empty signal mask,
+        // whatever this process ignores or blocks (so Ctrl-C reaches agy).
+        #if canImport(Darwin)
+        var attributes: posix_spawnattr_t? = nil
+        #else
+        var attributes = posix_spawnattr_t()
+        #endif
+        posix_spawnattr_init(&attributes)
+        defer { posix_spawnattr_destroy(&attributes) }
+        var noSignals = sigset_t(), allSignals = sigset_t()
+        sigemptyset(&noSignals)
+        sigfillset(&allSignals)
+        posix_spawnattr_setsigmask(&attributes, &noSignals)
+        posix_spawnattr_setsigdefault(&attributes, &allSignals)
+        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF))
+
+        let argv: [UnsafeMutablePointer<CChar>?] = ([path] + arguments).map { strdup($0) } + [nil]
+        let envp: [UnsafeMutablePointer<CChar>?] = environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
+        defer { (argv + envp).forEach { free($0) } }
+
+        var pid = pid_t()
+        let error = posix_spawn(&pid, path, &actions, &attributes, argv, envp)
+        guard error == 0 else {
+            throw CocoaError(.executableLoad, userInfo: [NSFilePathErrorKey: path,
+                                                         NSLocalizedDescriptionKey: "cannot run \(path): \(String(cString: strerror(error)))"])
+        }
+        var status: Int32 = 0
+        while waitpid(pid, &status, 0) == -1 {
+            guard errno == EINTR else { return -1 }
+        }
+        // WIFEXITED / WEXITSTATUS / WTERMSIG are macros Swift cannot import.
+        let signal = status & 0x7f
+        return signal == 0 ? (status >> 8) & 0xff : 128 + signal
     }
 
     public static func remove(_ config: ServiceConfig, name: String) throws {
