@@ -1,5 +1,16 @@
 # agy2api
 
+> [!WARNING]
+> **Use at your own risk.** agy2api is an unofficial project, not affiliated with or
+> endorsed by Google, Anthropic or OpenAI. Using it may violate Google Antigravity's
+> terms and can get your Google account or Antigravity subscription **restricted,
+> suspended or banned**. The authors accept no responsibility for any such outcome
+> or any other loss. See [Disclaimer](#disclaimer).
+>
+> **风险自负。** 本项目为非官方项目，与 Google、Anthropic、OpenAI 无任何关联。使用本项目可能违反
+> Google Antigravity 的服务条款，并可能导致你的 Google 账号或 Antigravity 订阅被限制、停用或**封禁**。
+> 作者对封号及由此产生的任何损失**概不负责**。
+
 Serve the [Antigravity CLI](https://github.com/google-antigravity/antigravity-cli) (`agy`)
 as the three APIs coding agents speak:
 
@@ -180,8 +191,30 @@ swift test                                 # unit tests
 AGY2API_LIVE=1 swift test --filter Live    # tool round trips on all three wires against your local agy
 ```
 
-## Caveats
+## Disclaimer
 
-agy signs in with Antigravity's own OAuth client, and Google limits which clients
-may use it. Serving it to others, or to agents Google blocks, may break
-Antigravity's terms and get the account suspended.
+agy2api is provided "as is", without warranty of any kind (see [LICENSE](LICENSE)).
+It is an independent, unofficial project and is not affiliated with, endorsed by or
+supported by Google, Anthropic or OpenAI. "Antigravity", "Gemini", "Claude", "Claude
+Code" and "Codex" are trademarks of their respective owners.
+
+agy signs in with Antigravity's own OAuth client, and Google limits which clients and
+uses its subscriptions allow; it deliberately refuses some agents. Running agy behind
+an API, serving it to other people, or using it with agents Google blocks may break
+Antigravity's terms of service.
+
+**You are solely responsible for how you use this software.** The authors and
+contributors accept no responsibility or liability for any account restriction,
+suspension or ban, loss of subscription, quota or data, charges, or any other damage
+arising from its use. If you are not prepared to accept that risk, do not use it.
+
+### 免责声明
+
+本软件按“原样”提供，不附带任何形式的担保（见 [LICENSE](LICENSE)）。本项目为独立的非官方项目，与 Google、
+Anthropic、OpenAI 无任何关联，也未获得其认可或支持。
+
+agy 使用 Antigravity 自己的 OAuth 客户端登录，Google 对其订阅允许的客户端和用途有所限制，并会主动拒绝部分
+agent。将 agy 封装为 API、提供给他人使用，或配合被 Google 封锁的 agent 使用，都可能违反 Antigravity 的服务条款。
+
+**使用本软件的一切后果由使用者自行承担。** 对于因使用本软件导致的账号被限制、停用或封禁，订阅、额度或数据的
+损失，产生的费用，以及其他任何损害，作者及贡献者概不负责。如不能接受上述风险，请勿使用。
