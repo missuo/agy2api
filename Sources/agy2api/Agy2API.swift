@@ -58,6 +58,13 @@ struct Serve: AsyncParsableCommand {
             if let m = try mode("AGY2API_SYSTEM_PROMPT_\(suffix)") { config.systemPromptModeByWire[wire] = m }
         }
         if let v = env("AGY2API_MAX_SESSIONS").flatMap(Int.init) { config.maxSessionsPerAccount = max(1, v) }
+        if let v = env("AGY2API_ACCOUNT_STRATEGY") {
+            guard let strategy = AccountStrategy(rawValue: v) else {
+                throw ValidationError("AGY2API_ACCOUNT_STRATEGY must be round-robin or least-sessions")
+            }
+            config.accountStrategy = strategy
+        }
+        if let v = env("AGY2API_EXHAUSTED_COOLDOWN").flatMap(TimeInterval.init) { config.exhaustedCooldown = v }
         if let v = env("AGY2API_SESSION_IDLE").flatMap(TimeInterval.init) { config.sessionIdleTimeout = v }
         if let v = env("AGY2API_ACCOUNT_IDLE").flatMap(TimeInterval.init) { config.accountIdleTimeout = v }
 

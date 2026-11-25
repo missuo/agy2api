@@ -72,6 +72,10 @@ public struct ChatRequest: Sendable {
     /// Reasoning effort the client asked for (`low`, `medium`, `high`, …),
     /// used to pick a model variant.
     public var effort: String?
+    /// The client's own id for the conversation, when it sends one (Claude
+    /// Code `metadata.user_id`, Codex `prompt_cache_key`, Chat `user`), used
+    /// to keep a conversation on one account.
+    public var conversationKey: String?
     /// The agy model slug this request runs on (set by the service).
     public var slug: String = ""
 

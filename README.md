@@ -27,7 +27,7 @@ client ──HTTP (any of the three wires)──▶ agy2api ──ACP JSON-RPC (
   on. A conversation can even change wires mid-way.
 - **agy accounts live on the server.** `agy2api account login <name>` signs an agy
   account in (each has its own `HOME`; agy keeps and refreshes the credential).
-  Requests go to the account with the fewest live sessions.
+  See [Multiple accounts](#multiple-accounts).
 - **API keys.** `agy2api key add <name>` prints an `sk-agy-…` key once; only its
   SHA-256 is stored. Clients send it as `Authorization: Bearer` or `x-api-key`.
   Conversations are scoped to the key that opened them.
@@ -42,6 +42,24 @@ client ──HTTP (any of the three wires)──▶ agy2api ──ACP JSON-RPC (
 - **Limits.** Each live session holds an agy worker (~250 MB): at most
   `AGY2API_MAX_SESSIONS` per account (least recently used idle one evicted), idle
   sessions closed after `AGY2API_SESSION_IDLE`.
+
+## Multiple accounts
+
+- **A conversation stays on one account.** A live session is always continued
+  where it is. When it has to be reopened (idle timeout, eviction), the
+  conversation goes back to the same account: it is identified by the client's
+  own id (Claude Code `metadata.user_id`, Codex `prompt_cache_key`, Chat
+  `prompt_cache_key` / `user`), else by its opening message. Bindings last 24 h.
+- **It moves only when that account runs out of quota.** agy reports a spent
+  quota as a 429 (`RESOURCE_EXHAUSTED`) before anything is sent to the client, so
+  agy2api marks that account out for the model's family (`gemini-4-neon`,
+  `claude-opus-5-5`; effort variants share it) for `AGY2API_EXHAUSTED_COOLDOWN`
+  seconds, reopens the conversation on the next account (history replayed) and
+  keeps it there. When every account is out for that family the client gets
+  the 429, at once while all are cooling down. agy itself retries for about two
+  minutes before it reports the 429, so a failover takes that long.
+- **New conversations** are placed by `AGY2API_ACCOUNT_STRATEGY`: `round-robin`
+  (default) or `least-sessions`.
 
 ## Model names
 
@@ -148,6 +166,8 @@ Put TLS in front for remote use (Caddy: `reverse_proxy 127.0.0.1:8317 { flush_in
 | `--host`, `--port` / `AGY2API_HOST`, `AGY2API_PORT` | Bind address (default `127.0.0.1:8317`) |
 | `--system-account` | Development: use this machine's own agy login, no API keys |
 | `AGY2API_MAX_SESSIONS` | Live sessions per account (default 4) |
+| `AGY2API_ACCOUNT_STRATEGY` | `round-robin` (default) or `least-sessions` for new conversations |
+| `AGY2API_EXHAUSTED_COOLDOWN` | Seconds an account sits out a model family after a quota 429 (600) |
 | `AGY2API_SESSION_IDLE` / `AGY2API_ACCOUNT_IDLE` | Idle seconds before a session / an account's agy is stopped (600 / 1800) |
 | `AGY2API_TOOL_TIMEOUT` | Seconds a parked tool call waits for its result (900) |
 | `AGY2API_DUMP` | Directory to save every request body (debugging) |

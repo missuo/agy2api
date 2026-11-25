@@ -45,6 +45,7 @@ enum AnthropicWire {
         }
         var request = ChatRequest(wire: .anthropic, model: model, system: system.isEmpty ? nil : system.joined(separator: "\n\n"), turns: turns,
                                   tools: tools, stream: root["stream"]?.boolValue ?? false)
+        request.conversationKey = root["metadata"]?["user_id"]?.stringValue
         if let effort = root["output_config"]?["effort"]?.stringValue {
             request.effort = effort
         } else if let budget = root["thinking"]?["budget_tokens"]?.intValue {

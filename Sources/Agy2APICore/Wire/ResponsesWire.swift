@@ -94,6 +94,7 @@ enum ResponsesWire {
                                   turns: turns, tools: tools, stream: root["stream"]?.boolValue ?? false)
         request.previousResponseId = root["previous_response_id"]?.stringValue
         request.effort = root["reasoning"]?["effort"]?.stringValue
+        request.conversationKey = root["prompt_cache_key"]?.stringValue
         return request
     }
 

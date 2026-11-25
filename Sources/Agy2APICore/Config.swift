@@ -27,6 +27,10 @@ public struct ServiceConfig: Sendable {
         systemPromptModeByWire[wire] ?? systemPromptMode
     }
     public var maxSessionsPerAccount = 4
+    /// How conversations without an account are placed.
+    public var accountStrategy: AccountStrategy = .roundRobin
+    /// How long an account sits out a model family after running out of quota.
+    public var exhaustedCooldown: TimeInterval = 10 * 60
     public var sessionIdleTimeout: TimeInterval = 10 * 60
     public var accountIdleTimeout: TimeInterval = 30 * 60
 

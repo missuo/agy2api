@@ -58,6 +58,7 @@ enum ChatWire {
                                   turns: turns, tools: tools, stream: root["stream"]?.boolValue ?? false)
         request.includeUsage = root["stream_options"]?["include_usage"]?.boolValue ?? false
         request.effort = root["reasoning_effort"]?.stringValue
+        request.conversationKey = root["prompt_cache_key"]?.stringValue ?? root["user"]?.stringValue
         return request
     }
 

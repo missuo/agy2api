@@ -9,11 +9,13 @@ public final class Agy2APIService: Sendable {
     private let keys: KeyStore
     private let runtimes = NIOLockedValueBox([String: AccountRuntime]())
     private let responses = ResponseStore()
+    private let scheduler: AccountScheduler
     private let sweeper = NIOLockedValueBox<Task<Void, Never>?>(nil)
 
     public init(config: ServiceConfig) {
         self.config = config
         self.keys = KeyStore(config)
+        self.scheduler = AccountScheduler(strategy: config.accountStrategy, cooldown: config.exhaustedCooldown)
     }
 
     public func start() async throws {
@@ -40,6 +42,7 @@ public final class Agy2APIService: Sendable {
             runtimes.withLockedValue { $0[name] = nil }
         }
         await responses.prune()
+        await scheduler.prune()
     }
 
     // MARK: - Accounts
@@ -150,25 +153,63 @@ public final class Agy2APIService: Sendable {
         guard !accounts.isEmpty else {
             throw APIError(status: 503, type: "api_error", message: "no agy account is signed in (agy2api account login <name>)")
         }
+        let byName = Dictionary(uniqueKeysWithValues: accounts.map { ($0.name, $0) })
         let setup = Transcript.setupDigest(system: request.system, tools: request.tools)
-        var target: AccountRuntime?
-        var matched: (Conversation, Conversation.Continuation)?
+        let family = AccountScheduler.family(of: request.slug)
+        // The conversation's identity across sessions: the client's own id,
+        // else its opening message.
+        let conversation = owner + "\u{1}" + (request.conversationKey
+            ?? request.turns.first.map { Transcript.digest([$0]) } ?? "")
+
+        // A live session this request extends stays where it is.
+        var attempt: (AccountRuntime, (Conversation, Conversation.Continuation)?)?
         for account in accounts {
-            if let m = await account.match(request, owner: owner, setup: setup) { target = account; matched = m; break }
-        }
-        if target == nil {
-            var best: (AccountRuntime, Int)?
-            for account in accounts.shuffled() {
-                let load = await account.liveSessions
-                if best == nil || load < best!.1 { best = (account, load) }
+            if let m = await account.match(request, owner: owner, setup: setup) {
+                attempt = (account, m)
+                await scheduler.bind(conversation, to: account.name)
+                break
             }
-            target = best?.0
         }
-        let inner: AsyncStream<RelayEvent>
-        do {
-            inner = try await target!.handle(request, owner: owner, setup: setup, matched: matched)
-        } catch {
-            throw AccountRuntime.apiError(error)
+
+        var tried: Set<String> = []
+        var inner: AsyncStream<RelayEvent>?
+        while true {
+            if attempt == nil {
+                let candidates = byName.keys.filter { !tried.contains($0) }.sorted()
+                if tried.isEmpty, let wait = await scheduler.allExhausted(candidates, family: family) {
+                    throw APIError(status: 429, type: "rate_limit_error",
+                                   message: "every agy account is out of quota for \(family); retry in about \(Int(wait))s")
+                }
+                var loads: [String: Int] = [:]
+                for name in candidates { loads[name] = await byName[name]!.liveSessions }
+                guard let name = await scheduler.pick(conversation: conversation, family: family,
+                                                      candidates: candidates, loads: loads) else { break }
+                attempt = (byName[name]!, nil)
+            }
+            let (account, matched) = attempt!
+            attempt = nil
+            tried.insert(account.name)
+            let stream: AsyncStream<RelayEvent>
+            do {
+                stream = try await account.handle(request, owner: owner, setup: setup, matched: matched)
+            } catch {
+                throw AccountRuntime.apiError(error)
+            }
+            // Read the first event before anything reaches the client: a 429
+            // then is the account out of quota, and the next one can answer.
+            let retryable = tried.count < byName.count
+            let (first, rest) = await Self.peek(stream, abandonOnQuota: retryable)
+            if case .failure(let error)? = first, error.status == 429 {
+                await scheduler.markExhausted(account.name, family: family)
+                RelayLog.info("[\(account.name)] \(family) out of quota for \(Int(config.exhaustedCooldown))s" + (retryable ? "; trying another account" : ""))
+                if retryable { continue }
+            }
+            await scheduler.bind(conversation, to: account.name)
+            inner = rest
+            break
+        }
+        guard let inner else {
+            throw APIError(status: 429, type: "rate_limit_error", message: "every agy account is out of quota for \(family)")
         }
 
         let responseId = randomId("resp_")
@@ -196,6 +237,32 @@ public final class Agy2APIService: Sendable {
             if case .cancelled = reason { forward.cancel() }
         }
         return (request, outer, responseId)
+    }
+}
+
+extension Agy2APIService {
+    /// The first event of `stream`, and a stream of everything (that event
+    /// included). With `abandonOnQuota`, a leading 429 is not forwarded and
+    /// the returned stream stays empty: the caller retries elsewhere.
+    static func peek(_ stream: AsyncStream<RelayEvent>, abandonOnQuota: Bool) async -> (RelayEvent?, AsyncStream<RelayEvent>) {
+        let (out, sink) = AsyncStream<RelayEvent>.makeStream()
+        let (firstStream, firstSink) = AsyncStream<RelayEvent?>.makeStream()
+        let forward = Task {
+            var iterator = stream.makeAsyncIterator()
+            let first = await iterator.next()
+            firstSink.yield(first)
+            firstSink.finish()
+            if case .failure(let e)? = first, e.status == 429, abandonOnQuota { return }
+            if let first { sink.yield(first) }
+            while let event = await iterator.next() { sink.yield(event) }
+            sink.finish()
+        }
+        sink.onTermination = { reason in
+            if case .cancelled = reason { forward.cancel() }
+        }
+        var first: RelayEvent?
+        for await value in firstStream { first = value }
+        return (first, out)
     }
 }
 
