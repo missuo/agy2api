@@ -1,0 +1,25 @@
+# Example systemd unit. Set up the account and state first:
+#   useradd --system --create-home --home-dir /var/lib/agy2api --shell /usr/sbin/nologin agy2api
+#   sudo -u agy2api bash -c 'curl -fsSL https://antigravity.google/cli/install.sh | bash'
+#   sudo -u agy2api agy2api account login main --data-root /var/lib/agy2api/data --agy /var/lib/agy2api/.local/bin/agy
+#   sudo -u agy2api agy2api key add laptop --data-root /var/lib/agy2api/data
+# and install the binary to /usr/local/bin/agy2api.
+[Unit]
+Description=agy2api (Antigravity CLI as Anthropic / OpenAI compatible APIs)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=agy2api
+ExecStart=/usr/local/bin/agy2api serve --host 127.0.0.1 --port 8317 \
+    --data-root /var/lib/agy2api/data --agy /var/lib/agy2api/.local/bin/agy
+# Claude Code only works with its system prompt dropped (see README).
+Environment=AGY2API_SYSTEM_PROMPT_ANTHROPIC=drop
+Restart=on-failure
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/agy2api
+
+[Install]
+WantedBy=multi-user.target
